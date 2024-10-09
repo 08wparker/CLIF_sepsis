@@ -15,7 +15,9 @@ Please refer to the online [CLIF data dictionary](https://clif-consortium.github
 
 ### To identify presumed infection
 -  **`microbiology_culture`** for blood culture collection
+    - only blood culture collection data necessary, e.g. `fluid_category = "Blood/Buffy Coat"`, `collect_dttm`, and `component_category == "culture"` required
 -  **`medication_admin_intermittent`** for qualifying antibiotic days
+    - only `med_group == "antibiotics` required (list of `med_categories` coming soon)   
 
 ### To identify organ dysfunction
 - **`labs`**
@@ -43,7 +45,8 @@ Describe the output of the analysis. The final project results should be saved i
 ## Detailed Instructions for running the project
 
 ## 1. Setup Project Environment
-Describe the steps to setup the project environment. 
+
+UNDER CONSTRUCTION
 
 Example for R:
 ```
@@ -64,10 +67,5 @@ Follow instructions in the [config/README.md](config/README.md) file for detaile
 ## 3. Run code
 Detailed instructions on the code workflow are provided in the [code directory](code/README.md)
 
-
-## Example Repositories
-* [CLIF Adult Sepsis Events](https://github.com/08wparker/CLIF_adult_sepsis_events) for R
-* [CLIF Eligibility for mobilization](https://github.com/kaveriC/mobilization) for Python
----
 
 
