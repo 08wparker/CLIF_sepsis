@@ -1,30 +1,40 @@
-# CLIF Project Title
+# Epidemiology of Adult Sepsis Events 
 
 ## Objective
 
-Describe the project objective
+Identify adult sepsis events using the [CDC Adult Sepsis Event Toolkit](https://www.cdc.gov/sepsis/pdfs/sepsis-surveillance-toolkit-mar-2018_508.pdf) criteria using the [Common Longitudinal Intensive Format (CLIF) 2.0](https://clif-consortium.github.io/website/) data structure. 
 
 ## Required CLIF tables and fields
 
 Please refer to the online [CLIF data dictionary](https://clif-consortium.github.io/website/data-dictionary.html), [ETL tools](https://github.com/clif-consortium/CLIF/tree/main/etl-to-clif-resources), and [specific table contacts](https://github.com/clif-consortium/CLIF?tab=readme-ov-file#relational-clif) for more information on constructing the required tables and fields. List all required tables for the project here, and provide a brief rationale for why they are required.
 
+### To identify hospitalizations and describe demographics:
+- **`patient`**
+- **`hospitalization`**
+- **`ADT`**
 
-Example:
+### To identify presumed infection
+-  **`microbiology_culture`** for blood culture collection
+-  **`medication_admin_intermittent`** for qualifying antibiotic days
 
-The following tables are required:
-1. **patient**: `patient_id`, `race_category`, `ethnicity_category`, `sex_category`
-2. **hospitalization**: `patient_id`, `hospitalization_id`, `admission_dttm`, `discharge_dttm`, `age_at_admission`
-3. **vitals**: `hospitalization_id`, `recorded_dttm`, `vital_category`, `vital_value`
-   - `vital_category` = 'heart_rate', 'resp_rate', 'sbp', 'dbp', 'map', 'resp_rate', 'spo2'
-4. **labs**: `hospitalization_id`, `lab_result_dttm`, `lab_category`, `lab_value`
-   - `lab_category` = 'lactate'
-5. **medication_admin_continuous**: `hospitalization_id`, `admin_dttm`, `med_name`, `med_category`, `med_dose`, `med_dose_unit`
-   - `med_category` = "norepinephrine", "epinephrine", "phenylephrine", "vasopressin", "dopamine", "angiotensin", "nicardipine", "nitroprusside", "clevidipine", "cisatracurium"
-6. **respiratory_support**: `hospitalization_id`, `recorded_dttm`, `device_category`, `mode_category`, `tracheostomy`, `fio2_set`, `lpm_set`, `resp_rate_set`, `peep_set`, `resp_rate_obs`
-
+### To identify organ dysfunction
+- **`labs`**
+  - `lab_category %in% c("lactate", "creatinine", "bilirubin_total", "platelet_count")`
+- **`vitals`**
+- **`medication_admin_continuous`**
+  - `med_category %in% c("norepinephrine", "epinephrine", "phenylephrine", "vasopressin", "dopamine", "angiotensin")`
+- **`respiratory_support`**
+  - only `hospitalization_id`, `recorded_dttm`, and `device_category == "IMV"` required
+  
 
 ## Cohort identification
-Describe study cohort inclusion and exclusion criteria here
+
+Adults admitted to inpatient status (`location_category %in% c("Ward", "ICU"`) from 1/1/2020 to 12/31/2021
+
+``` r
+start_date <- "2020-01-01"
+end_date <- "2021-12-31"
+```
 
 ## Expected Results
 
@@ -46,13 +56,6 @@ renv::init()
 renv::install(c("knitr", "here", "tidyverse", "arrow", "gtsummary"))
 # Save the project's package state:
 renv::snapshot()
-```
-
-Example for Python:
-```
-python3 -m venv .mobilization
-source .mobilization/bin/activate
-pip install -r requirements.txt 
 ```
 
 ## 2. Update `config/config.json`

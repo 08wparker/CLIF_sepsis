@@ -38,7 +38,9 @@ tables <- c("patient", "hospitalization", "vitals", "labs",
             "microbiology_nonculture")
 
 # Tables that should be set to TRUE for this project
-true_tables <- c("patient", "hospitalization", "adt", "microbiology_culture", 
+true_tables <- c("patient", "hospitalization", "adt", 
+                 #"medication_admin_intermittent", 
+                 "microbiology_culture", 
                  "vitals", "labs", "medication_admin_continuous", 
                  "respiratory_support")
 
@@ -89,7 +91,7 @@ required_filenames <- clif_table_filenames[clif_table_basenames %in% required_fi
 if (file_type == "parquet") {
   data_list <- lapply(required_filenames, function(file) {
     open_dataset(file) %>%
-      filter(your_filter_condition) %>%
+      #filter(your_filter_condition) %>% # add a filter condition for all tables
       collect()
   })
 } else if (file_type == "csv") {
@@ -155,7 +157,7 @@ if (include_er_deaths) {
 ## Export the list of `hospitalization_id` for the identified patients
 
 save(cohort_hospitalization_ids, 
-     file = here(paste0(cohort_path, "/cohort_hospitalization_ids.RData")))
+     file = here("study_cohort/01_cohort_hospitalization_ids.RData"))
 
 ## Filter the CLIF tables for the identified hospitalizations
 
@@ -189,7 +191,7 @@ for (table_name in names(table_flags)[table_flags]) {
 }
 
 # Filter the patient table for the identified patients
-cohort_patient_ids <- clif_hospitalization_cohort %>%
+cohort_patient_ids <- clif_hospitalization_filtered %>%
   select(patient_id) %>%
   unique() %>%
   pull(patient_id)
@@ -198,15 +200,12 @@ clif_patient_cohort <- filter_clif_table(clif_patient, "patient_id",
                                          cohort_patient_ids)
 
 # TO DO:
-# - drop unecessary fields or observations in this step as well, e.g. filter 
-#   `labs` down to only the labs that are relevant for the sepsis surveillance 
-#   project.
-# - convert to a shiny app
+# filter tables, e.g. `labs` down to only the labs that are relevant for the project
 
 ## Save all filtered tables to the `study_cohort` folder
 
 save(list = ls(pattern = "clif_.*_cohort"), 
-     file = here(paste0(cohort_path, "/clif_cohort_tables.RData")))
+     file = here("study_cohort/01_clif_cohort_tables.RData"))
 
 # Create a table 1 of patient demographics for the cohort
 
@@ -216,8 +215,6 @@ admits_per_patient <- clif_hospitalization_cohort %>%
 
 table_one_patient <- clif_patient_cohort %>%
   left_join(admits_per_patient, by = "patient_id") %>%
-  #left_join(clif_hospitalization_cohort %>% 
-  #          select(patient_id, age_at_admission, discharge_category)) %>%
   mutate(age =  as.Date(start_date) -as.Date(birth_date),
          age = as.numeric(age, units = "days") / 365.25) %>%
   ungroup() %>%
@@ -251,5 +248,5 @@ table_one_hospitalization <- clif_hospitalization_cohort %>%
 #export the table with gtsummary
 table_one_hospitalization %>% 
   as_gt() %>% 
-  gt::gtsave(filename = here(paste0("results/Table_One_", Sys.Date(), "_", 
+  gt::gtsave(filename = here(paste0("output/intermediate/Table_One_", Sys.Date(), "_", 
                                     config$site_name, ".pdf")))

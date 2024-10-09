@@ -1,11 +1,11 @@
- ## Code directory
+## Code directory
 
 Update this README with the specific project workflow instructions.
 This directory contains scripts for the project workflow. The general workflow consists of three main steps: cohort identification, quality control, and analysis. Scripts can be implemented in R or Python, depending on project requirements. Please note that this workflow is just a suggestion, and you may change the structure to suit your project needs.
 
 ### General Workflow
 
-1. Run the cohort_identification script
+1. Run the `01_cohort_identification.R` script
    This script should:
    - Apply inclusion and exclusion criteria
    - Select required fields from each table
