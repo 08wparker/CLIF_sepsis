@@ -17,7 +17,11 @@ Please refer to the online [CLIF data dictionary](https://clif-consortium.github
 -  **`microbiology_culture`** for blood culture collection
     - only blood culture collection data necessary, e.g. `fluid_category = "Blood/Buffy Coat"`, `collect_dttm`, and `component_category == "culture"` required
 -  **`medication_admin_intermittent`** for qualifying antibiotic days
-    - only `med_group == "antibiotics` required (list of `med_categories` coming soon)   
+    - only `med_group == "qualifying_CMS_antibiotics` required (list of `med_categories` below)
+    - `med_route_name` and `med_route_category` also required
+ 
+![image](https://github.com/user-attachments/assets/9bbcfbd1-e171-4a99-9c6f-3aa0a6a578a3)
+
 
 ### To identify organ dysfunction
 - **`labs`**
