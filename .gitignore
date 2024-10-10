@@ -1,5 +1,6 @@
 .Rproj.user
 .Rhistory
+.Rprofile
 
 .Ruserdata
 .DS_Store
@@ -9,6 +10,9 @@
 CLIF_*.parquet
 CLIF_*.csv
 CLIF_*.fst
+
+# ignore the renv intialization file
+initialize_renv.R
 
 # ignore filtered CLIF tables stored as Rdata
 *.RData
