@@ -2,7 +2,8 @@
 
 ## Objective
 
-Identify adult sepsis events using the [CDC Adult Sepsis Event Toolkit](https://www.cdc.gov/sepsis/pdfs/sepsis-surveillance-toolkit-mar-2018_508.pdf) criteria using the [Common Longitudinal Intensive Format (CLIF) 2.0](https://clif-consortium.github.io/website/) data structure. 
+* Identify adult sepsis events using the [CDC Adult Sepsis Event Toolkit](https://www.cdc.gov/sepsis/pdfs/sepsis-surveillance-toolkit-mar-2018_508.pdf) criteria using the [Common Longitudinal Intensive Format (CLIF) 2.0](https://clif-consortium.github.io/website/) data structure. 
+* Determine the effect of including lactate in the definition on sepsis prevalence and mortality rates
 
 ## Required CLIF tables and fields
 
@@ -42,19 +43,15 @@ start_date <- "2020-01-01"
 end_date <- "2021-12-31"
 ```
 
-## Expected Results
+## Expected Results:
 
-Describe the output of the analysis. The final project results should be saved in the [`output/final`](output/README.md) directory.
+**under construction**
 
-## Detailed Instructions for running the project
+## Detailed Instructions
 
-## 1. Update `config/config.json`
-Follow instructions in the [config/README.md](config/README.md) file for detailed configuration steps.
+## 1. Run [`code`](code/README.md) 
 
-## 2. Run code
-Detailed instructions on the code workflow are provided in the [code directory](code/README.md). 
-
-## 4. Deposit results:
+## 2. Deposit results:
 Use this [file request link](https://uchicago.app.box.com/f/ceaca412782f47529f9f509f594ad9b0) to deposit your entire `result_[SITE_NAME]` folder.
 
 
