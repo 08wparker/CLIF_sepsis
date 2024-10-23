@@ -113,7 +113,7 @@ ui <- fluidPage(
 server <- function(input, output, session) {
   
   # Enable file system access with shinyFiles
-  shinyDirChoose(input, "tables_dir", roots = c(home = "~"), session = session)
+  shinyDirChoose(input, "tables_dir", roots = c(home = "~", root = "/"), session = session)
   
   # Reactively get the tables directory path
   tables_dir <- reactive({
@@ -266,7 +266,7 @@ server <- function(input, output, session) {
       incProgress(0.4, detail = "Filtering ADT table...")
 
       inpatient_hospitalization_ids <- tables_to_filter$clif_adt %>%
-        filter(location_category %in% c("Ward", "ICU")) %>%
+        filter(tolower(location_category) %in% c("ward", "icu")) %>%
         filter(hospitalization_id %in% cohort_hospitalization_ids) %>%
         select(hospitalization_id) %>%
         collect() %>%
@@ -282,7 +282,7 @@ server <- function(input, output, session) {
           filter(hospitalization_id %in% clif_hospitalization_filtered$hospitalization_id) %>%
           collect() %>%
           group_by(hospitalization_id) %>%
-          filter(all(location_category == "ER")) %>%
+          filter(all(tolower(location_category) == "er")) %>%
           pull(hospitalization_id)
         
         ER_death_ids <- tables_to_filter$clif_hospitalization %>%
@@ -358,7 +358,7 @@ server <- function(input, output, session) {
       
       # Generate 'ever_icu' variable
       ever_icu_id <- clif_adt_filtered %>%
-        filter(location_category == "ICU") %>%
+        filter(tolower(location_category) == "icu") %>%
         pull(hospitalization_id) %>%
         unique()
       
