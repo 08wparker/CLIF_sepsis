@@ -48,28 +48,13 @@ Describe the output of the analysis. The final project results should be saved i
 
 ## Detailed Instructions for running the project
 
-## 1. Setup Project Environment
-
-UNDER CONSTRUCTION
-
-Example for R:
-```
-# Setup R environment using renv
-# Install renv if not already installed:
-if (!requireNamespace("renv", quietly = TRUE)) install.packages("renv")
-# Initialize renv for the project:
-renv::init()
-# Install required packages:
-renv::install(c("knitr", "here", "tidyverse", "arrow", "gtsummary"))
-# Save the project's package state:
-renv::snapshot()
-```
-
-## 2. Update `config/config.json`
+## 1. Update `config/config.json`
 Follow instructions in the [config/README.md](config/README.md) file for detailed configuration steps.
 
-## 3. Run code
-Detailed instructions on the code workflow are provided in the [code directory](code/README.md)
+## 2. Run code
+Detailed instructions on the code workflow are provided in the [code directory](code/README.md). 
 
+## 4. Deposit results:
+Use this [file request link](https://uchicago.app.box.com/f/ceaca412782f47529f9f509f594ad9b0) to deposit your entire `result_[SITE_NAME]` folder.
 
 

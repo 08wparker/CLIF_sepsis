@@ -5,5 +5,7 @@ if (!requireNamespace("renv", quietly = TRUE)) {
   install.packages("renv")
 }
 
+
 # Restore the project's package environment
+renv::activate()
 renv::restore()

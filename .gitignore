@@ -6,10 +6,12 @@
 .DS_Store
 *.Rproj
 
-#ignore source CLIF_ files 
+#ignore source CLIF_ files
 CLIF_*.parquet
 CLIF_*.csv
 CLIF_*.fst
+
+config.json
 
 # ignore the renv intialization file
 initialize_renv.R

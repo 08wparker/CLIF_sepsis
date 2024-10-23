@@ -1,0 +1,254 @@
+---
+title: "sepsis_quality_control"
+output: html_notebook
+date: "2024-10-20"
+---
+
+# Required packages
+
+```{r}
+library(here)
+library(tidyverse)
+library(gtsummary)
+library(arrow)
+```
+
+
+# Load in sepsis study cohort CLIF tables
+```{r}
+# Load the configuration utility
+source(here("utils/config.R"))
+
+site_name <- config$site_name
+tables_path <- paste0(config$tables_path, "/sepsis_study_cohort/")
+file_type <- config$file_type
+
+
+# Get a list of all parquet files in the folder
+parquet_files <- list.files(tables_path, pattern = "*.parquet", full.names = TRUE)
+
+# Function to load parquet file and assign to a variable with the name based on the file name
+load_parquet_file <- function(file_path) {
+  # Create a variable name from the file name without extension
+  var_name <- tools::file_path_sans_ext(basename(file_path))
+  
+  # Load the parquet file and assign it to the global environment
+  assign(var_name, read_parquet(file_path), envir = .GlobalEnv)
+}
+
+# Loop over all files and load them into memory
+lapply(parquet_files, load_parquet_file)
+```
+
+
+# Table 1
+```{r}
+ever_icu <- clif_adt_cohort %>%
+  filter(location_category == "ICU") %>%
+  select(hospitalization_id) %>%
+  mutate(ever_icu = 1,
+         hospitalization_id = as.character(hospitalization_id)) %>%
+  unique()
+
+table_one_hospitalization <- clif_hospitalization_cohort %>%
+  mutate(length_of_stay = as.numeric(as.Date(discharge_dttm) - 
+                                     as.Date(admission_dttm), units = "days")) %>%
+  select(patient_id, hospitalization_id, age_at_admission, discharge_category, 
+         admission_type_name, length_of_stay) %>%
+  mutate( patient_id = as.character(patient_id)) %>%
+  left_join(clif_patient_cohort %>% 
+              mutate( patient_id = as.character(patient_id)) %>%
+              select(patient_id, race_category, sex_category, 
+                     ethnicity_category, language_name)) %>% 
+  mutate(hospitalization_id = as.character(hospitalization_id)) %>%
+  left_join(ever_icu, by = "hospitalization_id") %>%
+  mutate(ever_icu = ifelse(is.na(ever_icu), 0, 1)) %>%
+  select(-patient_id, - hospitalization_id) %>%
+  tbl_summary(by = ever_icu)
+```
+
+```{r}
+table_one_hospitalization 
+```
+
+
+### blood culture count check
+```{r}
+blood_culture_hospitalization_ids <- clif_microbiology_culture_cohort %>% 
+    filter(specimen_category == "blood/buffy coat") %>% pull(hospitalization_id) %>% unique() 
+
+
+blood_culture_count <- blood_culture_hospitalization_ids %>% length()
+
+total_hospitalizations <- (nrow(clif_hospitalization_cohort))
+
+hospitalizations_with_blood_culture <-100*(blood_culture_count/total_hospitalizations) %>% round(digits = 4)
+```
+
+Out of `r total_hospitalizations` total hospitalizations, `r blood_culture_count`(`r hospitalizations_with_blood_culture`%) had a blood culture and `r any_culture_count` (`r hosptializations_with_any_culture`%) had any culture.
+
+
+### ICU patient blood culture count check
+```{r}
+icu_patients <- clif_adt_cohort %>%
+  filter(location_category == "ICU") %>%
+  pull(hospitalization_id) %>%
+  unique() 
+
+icu_patient_count <- icu_patients %>% length()
+
+icu_patients_w_blood_culture <- intersect(blood_culture_hospitalization_ids, icu_patients) 
+
+icu_patient_blood_cx_pct <- 100*(length(icu_patients_w_blood_culture)/icu_patient_count) %>% round(digits = 4)
+```
+
+Out of `r icu_patient_count` hospitalizations involving an ICU admission, `r icu_patients_w_blood_culture %>% length()` (`r icu_patient_blood_cx_pct`%) had a blood culture.
+
+
+# `clif_medication_intermittent` 
+```{r}
+clif_medication_admin_intermittent_cohort %>%
+  count(med_category) %>%
+  arrange(-n)
+```
+
+```{r}
+clif_medication_admin_intermittent_cohort %>%
+  select(med_category, med_dose, med_dose_units) %>%
+  mutate(med_dose = as.numeric(med_dose)) %>%
+  mutate(full_med = paste(med_dose,med_dose_units)) %>%
+  group_by(med_category) %>%
+  count(full_med) %>%
+  arrange(med_category, -n)
+```
+
+## Blood culture frequency in patients receiving IV antibiotics
+```{r}
+iv_cefepime_ids <- clif_medication_admin_intermittent_cohort %>%
+  filter(med_category == "cefepime" & med_route_name == "intravenous") %>%
+  pull(hospitalization_id) %>% unique()
+
+iv_cefepime_blood_culture <- intersect(blood_culture_hospitalization_ids, iv_cefepime_ids)
+```
+Out of `r iv_cefepime_ids %>% length()` patients treated with cefepime, `r iv_cefepime_blood_culture %>% length()` (`r round(100*(iv_cefepime_blood_culture %>% length())/(iv_cefepime_ids %>% length()), 2)`%) had a blood culture
+
+
+```{r}
+iv_meropenem_ids <- clif_medication_admin_intermittent_cohort %>%
+  filter(med_category == "meropenem" & med_route_name == "intravenous") %>%
+  pull(hospitalization_id) %>% unique()
+
+iv_meropenem_blood_culture <- intersect(blood_culture_hospitalization_ids, iv_meropenem_ids)
+```
+Out of `r iv_meropenem_ids %>% length()` patients treated with IV meropenem, `r iv_meropenem_blood_culture %>% length()` (`r round(100*(iv_meropenem_blood_culture %>% length)/(iv_meropenem_ids %>% length()))`%) had a blood culture at any point during their hospitalization 
+
+## IV antibiotic frequency in ICU patients
+```{r}
+iv_cefepime_icu_patients <- intersect(iv_cefepime_ids, icu_patients)
+
+icu_patients_cefepime_blood_culture <- intersect(iv_cefepime_ids, icu_patients_w_blood_culture)
+```
+
+Out of `r iv_cefepime_icu_patients %>% length()` ICU patients treated with IV cefepime, `r icu_patients_cefepime_blood_culture %>% length()`(`r round(100*(icu_patients_cefepime_blood_culture %>% length())/(iv_cefepime_icu_patients %>% length()))`%) had a blood culture
+
+
+# IV vasoactives quality checks
+#### Distribution of vasocative doses
+
+```{r}
+clif_medication_admin_continuous_cohort %>%
+      filter(med_category %in% c("norepinephrine", "epinephrine", "phenylephrine", "vasopressin", "dopamine", "angiotensin") & med_dose > 0) %>%
+  group_by(hospitalization_id, admin_dttm, med_category) %>%
+  summarize(med_dose = mean(med_dose, na.rm = TRUE)) %>%
+  pivot_wider(names_from = med_category, values_from = med_dose) %>%
+  ungroup() %>%
+  select(-hospitalization_id, -admin_dttm) %>%
+  summary()
+```
+
+
+#### Lab measurement checks
+
+```{r}
+hospitalization_days <- clif_hospitalization_cohort %>%
+  select(hospitalization_id, admission_dttm, discharge_dttm) %>%
+  mutate(length_of_stay = as.numeric(as.Date(discharge_dttm) - as.Date(admission_dttm), 
+                                     units = "days") +1)  %>%
+  select(hospitalization_id, length_of_stay)
+
+long_sepsis_labs <- clif_labs_cohort %>%
+  filter(lab_category %in% c("lactate", "creatinine", "bilirubin_total", "platelet_count")) %>%
+  select(hospitalization_id, lab_category, lab_value_numeric, time = lab_result_dttm)  %>%
+  mutate(hospitalization_id = as.character(hospitalization_id)) 
+
+
+labs_measurement_per_hospitalization <- long_sepsis_labs %>%
+  group_by(hospitalization_id) %>%
+  count(lab_category) %>%
+  pivot_wider(names_from = lab_category, values_from = n) %>%
+  #fill NAs to zero for creatinine, lactate, bilirubin_total, platelet_count
+  mutate(across(c(creatinine, lactate, bilirubin_total, platelet_count), ~ifelse(is.na(.), 0, .))) %>%
+  left_join(hospitalization_days %>% mutate(hospitalization_id = as.character(hospitalization_id))) %>%
+  #calculate lab measurements per day
+  mutate(across(c(creatinine, lactate, bilirubin_total, platelet_count), ~./length_of_stay))
+
+labs_measurement_per_hospitalization %>%
+  pivot_longer(cols = c(creatinine, lactate, bilirubin_total, platelet_count), names_to = "lab_category", values_to = "measurements_per_day") %>%
+  ggplot(aes(measurements_per_day)) +
+  geom_histogram(binwidth = 0.1) + labs(x = "Lab measurements per day") + facet_wrap(~lab_category, scales = "free_y") +
+  lims(x = c(0, 5))
+```
+
+
+```{r}
+labs_measurement_per_hospitalization %>%
+  ungroup() %>%
+  select(-hospitalization_id) %>% 
+  summary()
+```
+
+```{r}
+labs_measurement_per_hospitalization %>%
+  pivot_longer(cols = c(creatinine, lactate, bilirubin_total, platelet_count), names_to = "lab_category", values_to = "measurements_per_day") %>%
+  ggplot(aes(x = lab_category, y = measurements_per_day)) +
+  geom_boxplot() + labs(y = "Lab measurements per day") 
+```
+
+```{r}
+no_lab_hospitalizations <- labs_measurement_per_hospitalization %>%
+  filter(creatinine == 0 & lactate == 0 & bilirubin_total == 0 & platelet_count == 0)
+
+no_lab_hospitalizations
+```
+
+
+```{r}
+labs_measurement_per_hospitalization %>%
+  ungroup() %>%
+  select(-hospitalization_id) %>% 
+  summary()
+```
+
+```{r}
+labs_measurement_per_hospitalization %>%
+  pivot_longer(cols = c(creatinine, lactate, bilirubin_total, platelet_count), names_to = "lab_category", values_to = "measurements_per_day") %>%
+  ggplot(aes(x = lab_category, y = measurements_per_day)) +
+  geom_boxplot() + labs(y = "Lab measurements per day") 
+```
+
+```{r}
+no_lab_hospitalizations <- labs_measurement_per_hospitalization %>%
+  filter(creatinine == 0 & lactate == 0 & bilirubin_total == 0 & platelet_count == 0)
+
+no_lab_hospitalizations
+```
+
+```{r}
+long_sepsis_labs %>%
+  filter(lab_category %in% c("creatinine", "bilirubin_total", "platelet_count")) %>%
+  group_by(hospitalization_id, lab_category) %>%
+  arrange(time) %>%
+  filter(row_number() == 1) %>%
+  mutate(hospitalization_id = as.character(hospitalization_id)) 
+```
+

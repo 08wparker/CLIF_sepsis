@@ -4,10 +4,10 @@ if (!requireNamespace("jsonlite", quietly = TRUE)) {
 }
 
 library(jsonlite)
-
+library(here)
 # Function to load configuration
 load_config <- function() {
-  json_path <- "config/config.json"
+  json_path <- here("config/config.json")
   if (file.exists(json_path)) {
     config <- fromJSON(json_path)
     message("Loaded configuration from config.json")
