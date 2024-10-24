@@ -49,7 +49,7 @@ end_date <- "2021-12-31"
 
 ## Detailed Instructions
 
-## 1. Run [`code`](code/README.md) 
+## 1. Run [`code`](code) 
 
 ## 2. Deposit results:
 Use this [file request link](https://uchicago.app.box.com/f/ceaca412782f47529f9f509f594ad9b0) to deposit your entire `result_[SITE_NAME]` folder.
