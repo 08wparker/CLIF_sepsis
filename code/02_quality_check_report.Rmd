@@ -11,6 +11,8 @@ library(here)
 library(tidyverse)
 library(gtsummary)
 library(arrow)
+library(glue)
+
 ```
 
 
@@ -44,7 +46,7 @@ lapply(parquet_files, load_parquet_file)
 # Table 1
 ```{r}
 ever_icu <- clif_adt_cohort %>%
-  filter(location_category == "ICU") %>%
+  filter(tolower(location_category) == "icu") %>%
   select(hospitalization_id) %>%
   mutate(ever_icu = 1,
          hospitalization_id = as.character(hospitalization_id)) %>%
@@ -54,7 +56,7 @@ table_one_hospitalization <- clif_hospitalization_cohort %>%
   mutate(length_of_stay = as.numeric(as.Date(discharge_dttm) - 
                                      as.Date(admission_dttm), units = "days")) %>%
   select(patient_id, hospitalization_id, age_at_admission, discharge_category, 
-         admission_type_name, length_of_stay) %>%
+          length_of_stay) %>%
   mutate( patient_id = as.character(patient_id)) %>%
   left_join(clif_patient_cohort %>% 
               mutate( patient_id = as.character(patient_id)) %>%
@@ -75,7 +77,7 @@ table_one_hospitalization
 ### blood culture count check
 ```{r}
 blood_culture_hospitalization_ids <- clif_microbiology_culture_cohort %>% 
-    filter(specimen_category == "blood/buffy coat") %>% pull(hospitalization_id) %>% unique() 
+    filter(tolower(fluid_category) == "blood/buffy coat") %>% pull(hospitalization_id) %>% unique() 
 
 
 blood_culture_count <- blood_culture_hospitalization_ids %>% length()
@@ -83,6 +85,8 @@ blood_culture_count <- blood_culture_hospitalization_ids %>% length()
 total_hospitalizations <- (nrow(clif_hospitalization_cohort))
 
 hospitalizations_with_blood_culture <-100*(blood_culture_count/total_hospitalizations) %>% round(digits = 4)
+
+glue("Out of {total_hospitalizations} total hospitalizations, {blood_culture_count} ({hospitalizations_with_blood_culture}%) had a blood culture.")
 ```
 
 Out of `r total_hospitalizations` total hospitalizations, `r blood_culture_count`(`r hospitalizations_with_blood_culture`%) had a blood culture and `r any_culture_count` (`r hosptializations_with_any_culture`%) had any culture.
@@ -91,7 +95,7 @@ Out of `r total_hospitalizations` total hospitalizations, `r blood_culture_count
 ### ICU patient blood culture count check
 ```{r}
 icu_patients <- clif_adt_cohort %>%
-  filter(location_category == "ICU") %>%
+  filter(tolower(location_category) == "icu") %>%
   pull(hospitalization_id) %>%
   unique() 
 
@@ -100,6 +104,8 @@ icu_patient_count <- icu_patients %>% length()
 icu_patients_w_blood_culture <- intersect(blood_culture_hospitalization_ids, icu_patients) 
 
 icu_patient_blood_cx_pct <- 100*(length(icu_patients_w_blood_culture)/icu_patient_count) %>% round(digits = 4)
+
+glue("Out of {icu_patient_count} hospitalizations involving an ICU admission, {length(icu_patients_w_blood_culture)} ({icu_patient_blood_cx_pct}%) had a blood culture.")
 ```
 
 Out of `r icu_patient_count` hospitalizations involving an ICU admission, `r icu_patients_w_blood_culture %>% length()` (`r icu_patient_blood_cx_pct`%) had a blood culture.
@@ -114,9 +120,9 @@ clif_medication_admin_intermittent_cohort %>%
 
 ```{r}
 clif_medication_admin_intermittent_cohort %>%
-  select(med_category, med_dose, med_dose_units) %>%
+  select(med_category, med_dose, med_dose_unit) %>%
   mutate(med_dose = as.numeric(med_dose)) %>%
-  mutate(full_med = paste(med_dose,med_dose_units)) %>%
+  mutate(full_med = paste(med_dose,med_dose_unit)) %>%
   group_by(med_category) %>%
   count(full_med) %>%
   arrange(med_category, -n)
@@ -125,20 +131,24 @@ clif_medication_admin_intermittent_cohort %>%
 ## Blood culture frequency in patients receiving IV antibiotics
 ```{r}
 iv_cefepime_ids <- clif_medication_admin_intermittent_cohort %>%
-  filter(med_category == "cefepime" & med_route_name == "intravenous") %>%
+  filter(tolower(med_category) == "cefepime" & tolower(med_route_name) == "intravenous") %>%
   pull(hospitalization_id) %>% unique()
 
 iv_cefepime_blood_culture <- intersect(blood_culture_hospitalization_ids, iv_cefepime_ids)
+
+glue("Out of {length(iv_cefepime_ids)} patients treated with cefepime, {length(iv_cefepime_blood_culture)} ({round(100 * length(iv_cefepime_blood_culture) / length(iv_cefepime_ids), 2)}%) had a blood culture.")
 ```
 Out of `r iv_cefepime_ids %>% length()` patients treated with cefepime, `r iv_cefepime_blood_culture %>% length()` (`r round(100*(iv_cefepime_blood_culture %>% length())/(iv_cefepime_ids %>% length()), 2)`%) had a blood culture
 
 
 ```{r}
 iv_meropenem_ids <- clif_medication_admin_intermittent_cohort %>%
-  filter(med_category == "meropenem" & med_route_name == "intravenous") %>%
+  filter(tolower(med_category) == "meropenem" & tolower(med_route_name) == "intravenous") %>%
   pull(hospitalization_id) %>% unique()
 
 iv_meropenem_blood_culture <- intersect(blood_culture_hospitalization_ids, iv_meropenem_ids)
+
+glue("Out of {length(iv_meropenem_ids)} patients treated with IV meropenem, {length(iv_meropenem_blood_culture)} ({round(100 * length(iv_meropenem_blood_culture) / length(iv_meropenem_ids), 2)}%) had a blood culture at any point during their hospitalization.")
 ```
 Out of `r iv_meropenem_ids %>% length()` patients treated with IV meropenem, `r iv_meropenem_blood_culture %>% length()` (`r round(100*(iv_meropenem_blood_culture %>% length)/(iv_meropenem_ids %>% length()))`%) had a blood culture at any point during their hospitalization 
 
@@ -147,6 +157,8 @@ Out of `r iv_meropenem_ids %>% length()` patients treated with IV meropenem, `r 
 iv_cefepime_icu_patients <- intersect(iv_cefepime_ids, icu_patients)
 
 icu_patients_cefepime_blood_culture <- intersect(iv_cefepime_ids, icu_patients_w_blood_culture)
+
+glue("Out of {length(iv_cefepime_icu_patients)} ICU patients treated with IV cefepime, {length(icu_patients_cefepime_blood_culture)} ({round(100 * length(icu_patients_cefepime_blood_culture) / length(iv_cefepime_icu_patients), 2)}%) had a blood culture.")
 ```
 
 Out of `r iv_cefepime_icu_patients %>% length()` ICU patients treated with IV cefepime, `r icu_patients_cefepime_blood_culture %>% length()`(`r round(100*(icu_patients_cefepime_blood_culture %>% length())/(iv_cefepime_icu_patients %>% length()))`%) had a blood culture
@@ -157,7 +169,7 @@ Out of `r iv_cefepime_icu_patients %>% length()` ICU patients treated with IV ce
 
 ```{r}
 clif_medication_admin_continuous_cohort %>%
-      filter(med_category %in% c("norepinephrine", "epinephrine", "phenylephrine", "vasopressin", "dopamine", "angiotensin") & med_dose > 0) %>%
+      filter(tolower(med_category) %in% c("norepinephrine", "epinephrine", "phenylephrine", "vasopressin", "dopamine", "angiotensin") & med_dose > 0) %>%
   group_by(hospitalization_id, admin_dttm, med_category) %>%
   summarize(med_dose = mean(med_dose, na.rm = TRUE)) %>%
   pivot_wider(names_from = med_category, values_from = med_dose) %>%
@@ -177,7 +189,7 @@ hospitalization_days <- clif_hospitalization_cohort %>%
   select(hospitalization_id, length_of_stay)
 
 long_sepsis_labs <- clif_labs_cohort %>%
-  filter(lab_category %in% c("lactate", "creatinine", "bilirubin_total", "platelet_count")) %>%
+  filter(tolower(lab_category) %in% c("lactate", "creatinine", "bilirubin_total", "platelet_count")) %>%
   select(hospitalization_id, lab_category, lab_value_numeric, time = lab_result_dttm)  %>%
   mutate(hospitalization_id = as.character(hospitalization_id)) 
 
@@ -245,7 +257,7 @@ no_lab_hospitalizations
 
 ```{r}
 long_sepsis_labs %>%
-  filter(lab_category %in% c("creatinine", "bilirubin_total", "platelet_count")) %>%
+  filter(tolower(lab_category) %in% c("creatinine", "bilirubin_total", "platelet_count")) %>%
   group_by(hospitalization_id, lab_category) %>%
   arrange(time) %>%
   filter(row_number() == 1) %>%
