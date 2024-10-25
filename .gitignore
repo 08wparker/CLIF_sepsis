@@ -6,6 +6,11 @@
 .DS_Store
 *.Rproj
 
+
+*ignore smb-related tempfiles
+._*
+
+
 #ignore source CLIF_ files
 CLIF_*.parquet
 CLIF_*.csv
