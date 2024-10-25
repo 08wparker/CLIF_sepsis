@@ -24,3 +24,5 @@ initialize_renv.R
 
 # ignore rendered html
 *.html
+CLIF_cohort_identifier-main
+CLIF_cohort_identifier.zip
