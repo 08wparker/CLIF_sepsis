@@ -1,19 +1,16 @@
 ---
-title: "sepsis_quality_control"
+title: "sepsis_quality_control".
 output: html_notebook
 date: "2024-10-20"
 ---
 
-Kevin B
-# Required packages
-
+# Required packages.
 ```{r}
 library(here)
 library(tidyverse)
 library(gtsummary)
 library(arrow)
 library(glue)
-
 ```
 
 
@@ -43,7 +40,6 @@ load_parquet_file <- function(file_path) {
 lapply(parquet_files, load_parquet_file)
 ```
 
-
 # Table 1
 ```{r}
 ever_icu <- clif_adt_cohort %>%
@@ -68,6 +64,8 @@ table_one_hospitalization <- clif_hospitalization_cohort %>%
   mutate(ever_icu = ifelse(is.na(ever_icu), 0, 1)) %>%
   select(-patient_id, - hospitalization_id) %>%
   tbl_summary(by = ever_icu)
+
+table_one_hospitalization
 ```
 
 ```{r}
@@ -77,9 +75,12 @@ table_one_hospitalization
 
 ### blood culture count check
 ```{r}
+
+clif_microbiology_culture_cohort <- clif_microbiology_culture_cohort %>% 
+  rename(fluid_category = specimen_category) 
+
 blood_culture_hospitalization_ids <- clif_microbiology_culture_cohort %>% 
     filter(tolower(fluid_category) == "blood/buffy coat") %>% pull(hospitalization_id) %>% unique() 
-
 
 blood_culture_count <- blood_culture_hospitalization_ids %>% length()
 
@@ -120,6 +121,9 @@ clif_medication_admin_intermittent_cohort %>%
 ```
 
 ```{r}
+clif_medication_admin_intermittent_cohort %>% 
+  rename(med_dose_unit = med_dose_units) 
+
 clif_medication_admin_intermittent_cohort %>%
   select(med_category, med_dose, med_dose_unit) %>%
   mutate(med_dose = as.numeric(med_dose)) %>%
