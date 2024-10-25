@@ -12,8 +12,7 @@ load_config <- function() {
     config <- fromJSON(json_path)
     message("Loaded configuration from config.json")
   } else {
-    stop("Configuration file not found. Please create config.json",
-         "based on the config_template.")
+    stop("Configuration file not found. Please run 01_run_cohort_id_app.R which will create it for you")
   }
   return(config)
 }
