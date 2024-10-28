@@ -1,4 +1,4 @@
-# Epidemiology of Adult Sepsis Events 
+# Epidemiology of Adult Sepsis Events. 
 
 ## Objective
 
