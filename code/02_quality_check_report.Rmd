@@ -74,9 +74,9 @@ table_one_hospitalization
 ### Check the blood culture count for hospitalized patients 
 ```{r}
 #For UoC only which needs to rename specimen_category to fluid_category
-#clif_microbiology_culture_cohort <- clif_microbiology_culture_cohort %>% 
-  #rename(fluid_category = specimen_category) 
+#clif_microbiology_culture_cohort <- clif_microbiology_culture_cohort %>% rename(fluid_category = specimen_category) 
 
+#For Will Parker - aren't we reverting back to using two proc codes internally at UoC for this? Are we keeping the code like this for other sites?
 #extract id and counts of patients with blood culture
 blood_culture_hospitalization_ids <- clif_microbiology_culture_cohort %>% 
     filter(tolower(fluid_category) == "blood/buffy coat") %>% pull(hospitalization_id) %>% unique() 
@@ -118,8 +118,6 @@ clif_medication_admin_intermittent_cohort %>%
   count(med_category) %>%
   mutate(percent_total = as.integer(100 * n / sum(n))) %>%
   arrange(-n)
-
-clif_medication_admin_intermittent_cohort
 ```
 
 ### Check that the doses and administration routes in the antibiotics are 1) oral or intravenous  and 2) reasonable treatment doses
@@ -173,6 +171,7 @@ Out of `r iv_meropenem_ids %>% length()` patients treated with IV meropenem, `r 
 
 
 #### Check IV vasoactives doses 
+# Ask Will parker about applying outlier scripts
 ```{r}
 clif_medication_admin_continuous_cohort %>%
   filter(tolower(med_category) %in% c("norepinephrine", "epinephrine", "phenylephrine", "vasopressin", "dopamine", "angiotensin") & med_dose > 0) %>% 
@@ -244,6 +243,7 @@ labs_measurement_per_hospitalization %>%
 ```
 
 #### Check values of lab draws for creatinine, lactate, bilirubin, and platelets
+# Ask Will parker about applying outlier scripts
 ```{r}
 long_sepsis_labs %>% 
   ungroup() %>% 

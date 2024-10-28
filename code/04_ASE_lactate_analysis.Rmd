@@ -1,0 +1,541 @@
+---
+title: "04_ASE_lactate_analysis"
+author: "Kevin Buell"
+date: "2024-10-27"
+output: html_document
+---
+# Required packages
+```{r}
+library(here)
+library(tidyverse)
+library(gtsummary)
+library(arrow)
+library(readr)
+```
+
+# Load in sepsis study cohort CLIF tables
+```{r}
+# Load the configuration utility
+source(here("utils/config.R"))
+
+site_name <- config$site_name
+tables_path <- paste0(config$tables_path, "/sepsis_study_cohort/")
+file_type <- config$file_type
+
+# Get a list of all parquet files in the folder
+parquet_files <- list.files(tables_path, pattern = "*.parquet", full.names = TRUE)
+
+# Function to load parquet file and assign to a variable with the name based on the file name
+load_parquet_file <- function(file_path) {
+  # Create a variable name from the file name without extension
+  var_name <- tools::file_path_sans_ext(basename(file_path))
+  
+  # Load the parquet file and assign it to the global environment
+  assign(var_name, read_parquet(file_path), envir = .GlobalEnv)
+}
+
+# Loop over all files and load them into memory
+lapply(parquet_files, load_parquet_file)
+```
+
+#Calculate overall sepsis incidence, with and without inclusion of lactate 
+```{r}
+#all patients who meet part B sepsis criteria (lactate, vasopressos, IMV, creatinine, bili, platelets) including use of lactate 
+sepsis_n_including_lactate<- wide_sepsis_times %>%
+  pull(hospitalization_id) %>%
+  unique() %>%
+  length()
+
+#patients who meet part B sepsis criteria because of addition of lactate 
+sepsis_n_becauseof_lactate <- wide_sepsis_times %>%
+  filter(lactate_only_dx == 1) %>%
+  pull(hospitalization_id) %>% 
+  unique() %>%
+  length()
+
+#patients who meet part B sepsis criteria (vasopressos, IMV, creatinine, bili, platelets) excluding use of lactate 
+sepsis_n_excluding_lactate <- sepsis_n_including_lactate - sepsis_n_becauseof_lactate
+
+#all hospitalizations in cohort
+total_hospitalizations <- clif_hospitalization_cohort %>% nrow()
+
+#calculate sepsis incidence
+sepsis_incidence <- tibble(
+  site = as.factor("ucmc"),  # Set 'site' as "ucmc" for all rows
+  sepsis_n_including_lactate,  # Example count, replace with your actual value
+  sepsis_n_becauseof_lactate,  # Example count, replace with your actual value
+  sepsis_n_excluding_lactate,
+  total_hospitalizations) %>%  # Example count, replace with your actual value
+mutate(sepsis_incidence_including_lactate = round(100 * sepsis_n_including_lactate / total_hospitalizations, digits = 2),
+       sepsis_incidence_excluding_lactate = round(100 * sepsis_n_excluding_lactate / total_hospitalizations, digits = 2))
+
+#check sepsis incidence is reasonable
+glue(
+"The sepsis incidence was {round(100 * sepsis_n_including_lactate / total_hospitalizations, digits = 2)}% for adult patients admitted during 2020-2021. 
+The sepsis incidence without lactate was {round(100 * sepsis_n_excluding_lactate / total_hospitalizations, digits = 2)}% for adult patients admitted during 2020-2021."
+)
+
+```
+##If reasonable sepsis incidence, please export your table into box
+```{r}
+#sepsis_incidence %>% write.csv(***pathway to dropbox***)
+sepsis_incidence
+```
+
+#Calculate sepsis incidence trends over time, with and without inclusion of lactate 
+```{r}
+#all patients who meet part B sepsis criteria (lactate, vasopressos, IMV, creatinine, bili, platelets) including use of lactate 
+sepsis_cases_time_withlactate_time <- wide_sepsis_times %>%
+  select(hospitalization_id, earliest_time_with_lactate) %>%
+  mutate(year = year(earliest_time_with_lactate),
+         month = month(earliest_time_with_lactate)) %>% 
+  group_by(year, month) %>% 
+  summarise(sepsis_cases_time_includinglactate = n_distinct(hospitalization_id))
+
+#patients who meet part B sepsis criteria because of addition of lactate 
+sepsis_n_becauseof_lactate_time <- wide_sepsis_times %>%
+  filter(lactate_only_dx == 1) %>%
+  select(hospitalization_id, earliest_time_with_lactate) %>%
+  mutate(year = year(earliest_time_with_lactate),
+         month = month(earliest_time_with_lactate)) %>%
+  group_by(year, month) %>% 
+  summarise(sepsis_cases_becauseof_lactate_time = n_distinct(hospitalization_id)) 
+
+#patients who meet part B sepsis criteria (vasopressos, IMV, creatinine, bili, platelets) excluding use of lactate 
+sepsis_n_excluding_lactate_time <- sepsis_cases_time_withlactate_time %>% 
+  left_join(sepsis_n_becauseof_lactate_time, by = c("year", "month")) %>%
+  mutate(sepsis_n_excluding_lactate_time = sepsis_cases_time_includinglactate - sepsis_cases_becauseof_lactate_time)
+
+#all hospitalizations in cohort
+hospitalizations_time <- clif_hospitalization_cohort %>% 
+  select(hospitalization_id, admission_dttm) %>% 
+  mutate(year = year(admission_dttm),
+         month = month(admission_dttm)) %>% 
+  group_by(year, month) %>%
+  summarise(total_hospitalizations_time = n_distinct(hospitalization_id)) 
+
+sepsis_incidence_time <- sepsis_n_excluding_lactate_time %>% 
+  left_join(hospitalizations_time, by = c("year", "month")) %>%
+  arrange(year, month) %>% 
+  mutate(sepsis_incidence_including_lactate = round(100 * sepsis_cases_time_includinglactate / total_hospitalizations_time, digits = 2),
+       sepsis_incidence_excluding_lactate = round(100 * sepsis_n_excluding_lactate_time / total_hospitalizations_time, digits = 2)) %>% 
+  mutate(site = as.factor("ucmc")) #please insert your site name here 
+
+#plot incidence of sepsis with and without use of lactate 
+  sepsis_incidence_time %>%
+  select(year, month, sepsis_incidence_including_lactate, sepsis_incidence_excluding_lactate) %>%
+  mutate(year_month = ym(paste(year, month, sep = "-"))) %>%
+  pivot_longer(cols = starts_with("sepsis_incidence"), 
+               names_to = "lactate_used", 
+               values_to = "sepsis_incidence") %>% 
+  mutate(lactate_used = recode(lactate_used, 
+                               "sepsis_incidence_including_lactate" = "Including Lactate",
+                               "sepsis_incidence_excluding_lactate" = "Excluding Lactate")) %>%
+  ggplot(aes(x = year_month, y = sepsis_incidence, color = lactate_used)) +
+  geom_smooth(se = FALSE, span = 0.4) +  # Smoothed line without confidence interval
+  scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") +  # Show all months on x-axis
+  labs(title = "Sepsis Incidence over Time",
+       x = "Year-Month",
+       y = "Sepsis Incidence (%)",
+       color = "Lactate Used") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+#If the above graph looks correct, please export your table into box
+```{r}
+#sepsis_incidence_time %>% write.csv(***pathway to dropbox***)
+sepsis_incidence_time
+```
+
+#assessment of lactate ordering trends over time; number of lactate ordered per sepsis patient hospitalization
+```{r}
+lactate_order_per_patient_full_hospitalization <- wide_sepsis_times %>%
+  left_join(clif_labs_cohort %>%
+              select(hospitalization_id, lab_result_dttm, lab_category),
+            by = "hospitalization_id") %>%  # Join on hospitalization_id
+  filter(lab_category == "lactate") %>% 
+  group_by(hospitalization_id) %>%  # Group by hospitalization_id
+  summarise(lactate_orders_n = n_distinct(lab_result_dttm)) %>%  # Count distinct lactate orders
+  ungroup() %>% 
+mutate(number_lactate = cut(
+    lactate_orders_n, 
+    breaks = seq(0, 100, by = 1),  # Create breaks from 0 to 30 by 1
+    include.lowest = TRUE,        # Include the lowest bound in the first interval
+    right = FALSE,                # Left-closed intervals
+    labels = paste0(seq(0, 99, by = 1), "-", seq(1, 100, by = 1))  # Create labels "0-1", "1-2", etc.
+  )) %>%
+  group_by(number_lactate) %>%
+  summarise(patients_n = n_distinct(hospitalization_id)) %>%  # Count distinct patients per group
+  ungroup() %>% 
+  mutate(
+    total = sum(patients_n),
+    percent.total = patients_n /sum(patients_n) * 100) %>% 
+  mutate(timing_sepsis = as.factor("full_hospitalization")) %>% 
+  mutate(site = as.factor("ucmc")) #please insert your site name here
+
+lactate_order_per_patient_until_sepsis <- wide_sepsis_times %>%
+  left_join(clif_labs_cohort %>%
+              select(hospitalization_id, lab_result_dttm, lab_category),
+            by = "hospitalization_id")  %>% 
+  filter(lab_category == "lactate") %>% 
+  filter(lab_result_dttm <= earliest_time_with_lactate) %>% #censor after sepsis diagnosis 
+  group_by(hospitalization_id) %>%  # Group by hospitalization_id
+  summarise(lactate_orders_n = n_distinct(lab_result_dttm)) %>%  # Count distinct lactate orders
+  ungroup() %>% 
+mutate(number_lactate = cut(
+    lactate_orders_n, 
+    breaks = seq(0, 100, by = 1),  # Create breaks from 0 to 30 by 1
+    include.lowest = TRUE,        # Include the lowest bound in the first interval
+    right = FALSE,                # Left-closed intervals
+    labels = paste0(seq(0, 99, by = 1), "-", seq(1, 100, by = 1))  # Create labels "0-1", "1-2", etc.
+  )) %>%
+  group_by(number_lactate) %>%
+  summarise(patients_n = n_distinct(hospitalization_id)) %>%  # Count distinct patients per group
+  ungroup() %>% 
+  mutate(
+    total = sum(patients_n),
+    percent.total = patients_n /sum(patients_n) * 100) %>% 
+  mutate(timing_sepsis = as.factor("until_sepsis_criteria_met")) %>% 
+  mutate(site = as.factor("ucmc")) #please insert your site name here
+
+# bind results
+lactate_order_per_patient <- rbind(lactate_order_per_patient_until_sepsis, lactate_order_per_patient_full_hospitalization) %>% 
+  arrange(number_lactate, timing_sepsis)
+
+#graph it 
+# Define the factor levels we are interested in: "1-2", "2-3", ..., "19-20"
+target_levels <- paste0(1:19, "-", 2:20)
+
+# Filter the dataset to include only the desired factor levels
+lactate_order_per_patient_filtered <- lactate_order_per_patient %>%
+  filter(number_lactate %in% target_levels)  # Keep only the desired factor levels
+
+# Plot with ggplot2
+ggplot(lactate_order_per_patient_filtered, aes(x = number_lactate, y = percent.total, fill = timing_sepsis)) +
+  geom_bar(stat = "identity", position = "dodge") +  # Separate bars for each factor level of timing_sepsis
+  labs(title = "Percent of Patients by Number of Lactate Orders",
+       x = "Number of Lactate Orders",
+       y = "Percent Total",
+       fill = "Timing Sepsis") +  # Legend title
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for better readability
+```
+
+# If the above graph looks correct, please export your table into box
+```{r}
+#lactate_order_per_patient %>%  write.csv(***pathway to dropbox***))
+lactate_order_per_patient
+```
+
+#number lactate orders over time
+```{r}
+lactate_order_per_patient_full_hospitalization_time <- wide_sepsis_times %>%
+  left_join(clif_labs_cohort %>%
+              select(hospitalization_id, lab_result_dttm, lab_category),
+            by = "hospitalization_id") %>%  # Join on hospitalization_id
+  filter(lab_category == "lactate") %>% 
+  mutate(year = year(lab_result_dttm),
+         month = month(lab_result_dttm)) %>%
+  group_by(hospitalization_id, year, month) %>%  # Group by hospitalization_id
+  summarise(lactate_orders_n = n_distinct(lab_result_dttm)) %>%  # Count distinct lactate orders
+  ungroup() %>% 
+mutate(number_lactate = cut(
+    lactate_orders_n, 
+    breaks = seq(0, 100, by = 1),  # Create breaks from 0 to 30 by 1
+    include.lowest = TRUE,        # Include the lowest bound in the first interval
+    right = FALSE,                # Left-closed intervals
+    labels = paste0(seq(0, 99, by = 1), "-", seq(1, 100, by = 1))  # Create labels "0-1", "1-2", etc.
+  )) %>%
+  group_by(number_lactate, month, year) %>%
+  summarise(patients_n = n_distinct(hospitalization_id)) %>%  # Count distinct patients per group
+  ungroup() %>% 
+  mutate(
+    total = sum(patients_n),
+    percent.total = patients_n /sum(patients_n) * 100) %>% #note sum is different because hospitalizations can span over multiple months
+  mutate(timing_sepsis = as.factor("full_hospitalization")) %>% 
+  mutate(site = as.factor("ucmc")) #please insert your site name here
+
+lactate_order_per_patient_until_sepsis_time <- wide_sepsis_times %>%
+  left_join(clif_labs_cohort %>%
+              select(hospitalization_id, lab_result_dttm, lab_category),
+            by = "hospitalization_id")  %>% 
+  filter(lab_category == "lactate") %>% 
+  mutate(year = year(lab_result_dttm),
+         month = month(lab_result_dttm)) %>%
+  filter(lab_result_dttm <= earliest_time_with_lactate) %>% #censor after sepsis diagnosis 
+  group_by(hospitalization_id, year, month) %>%  # Group by hospitalization_id
+  summarise(lactate_orders_n = n_distinct(lab_result_dttm)) %>%  # Count distinct lactate orders
+  ungroup() %>% 
+mutate(number_lactate = cut(
+    lactate_orders_n, 
+    breaks = seq(0, 100, by = 1),  # Create breaks from 0 to 30 by 1
+    include.lowest = TRUE,        # Include the lowest bound in the first interval
+    right = FALSE,                # Left-closed intervals
+    labels = paste0(seq(0, 99, by = 1), "-", seq(1, 100, by = 1))  # Create labels "0-1", "1-2", etc.
+  )) %>%
+  group_by(number_lactate, year, month) %>%
+  summarise(patients_n = n_distinct(hospitalization_id)) %>%  # Count distinct patients per group
+  ungroup() %>% 
+  mutate(
+    total = sum(patients_n),
+    percent.total = patients_n /sum(patients_n) * 100) %>% 
+  mutate(timing_sepsis = as.factor("until_sepsis_criteria_met")) %>% 
+  mutate(site = as.factor("ucmc")) #please insert your site name here
+
+# bind results
+lactate_order_per_patient_time <- rbind(lactate_order_per_patient_until_sepsis_time, lactate_order_per_patient_full_hospitalization_time) %>%
+  arrange(number_lactate, year, month, timing_sepsis)
+
+# Create the plot
+lactate_order_per_patient_time %>%
+  filter(timing_sepsis == "until_sepsis_criteria_met") %>%  # Filter by timing_sepsis
+  mutate(year_month = paste(year, month, sep = "-")) %>%  # Create a combined year_month column
+  filter(number_lactate %in% paste0(1:9, "-", 2:10)) %>%  # Filter for number_lactate levels from 1-2 to 9-10
+  ggplot(aes(x = year_month, y = percent.total, color = number_lactate, group = number_lactate)) +
+  geom_smooth(se = FALSE, span = 0.75) +  # Use geom_smooth() to add smoothed lines
+  labs(title = "Smoothed Percent Total by Year-Month and Number of Lactate Orders",
+       x = "Year-Month",
+       y = "Percent Total",
+       color = "Number of Lactate Orders") +  # Legend title
+  theme_minimal() +
+  scale_x_discrete(guide = guide_axis(angle = 45)) +  # Rotate x-axis labels for readability
+  theme(axis.text.x = element_text(hjust = 1))
+```
+# If the above graph looks correct, please export your table into box
+```{r}
+#lactate_order_per_patient_time %>%  write.csv(***pathway to dropbox***))
+```
+
+#calculate the proportions of first organ dysfunctions, with and without lactate criteria
+#note the NA in the table is normal, given its the patients with partb lactate only
+```{r}
+# Calculate proportions for first_organ_dysfunction_without_lactate
+without_lactate <- wide_sepsis_times %>%
+  ungroup() %>%
+  count(first_organ_dysfunction_without_lactate) %>%
+  mutate(total_n = sum(n),
+         percent.total = round(n / sum(n) * 100, 2),
+         category = "without_lactate")
+
+# Calculate proportions for first_organ_dysfunction_with_lactate
+with_lactate <- wide_sepsis_times %>%
+  ungroup() %>%
+  count(first_organ_dysfunction_with_lactate) %>%
+  mutate(total_n = sum(n),
+         percent.total = round(n / sum(n) * 100, 2),
+         category = "with_lactate")
+
+# Combine the two datasets into one for comparison and remove 'lactate' and 'NA'
+first_organ_dysfunction_wi_wo_lactacte <- bind_rows(
+  without_lactate %>% rename(first_organ_dysfunction = first_organ_dysfunction_without_lactate),
+  with_lactate %>% rename(first_organ_dysfunction = first_organ_dysfunction_with_lactate)
+) %>%
+   mutate(site = as.factor("ucmc")) #please insert your site name here
+
+# Plot the side-by-side bar chart
+first_organ_dysfunction_wi_wo_lactacte %>% 
+  filter(!is.na(first_organ_dysfunction),
+         !first_organ_dysfunction == "lactate") %>%  
+ggplot(aes(x = first_organ_dysfunction, y = percent.total, fill = category)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "First Organ Dysfunction", y = "Proportion (%)", 
+       title = "Comparison of First Organ Dysfunction With and Without Lactate Criteria") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+#If the above graph looks correct, please export your table into box
+#note, the 6th row should be NA, which represents patients who only diagnosed with sepsis from lactate 
+```{r}
+#export table
+#first_organ_dysfunction_wi_wo_lactacte %>% write.csv(***pathway to dropbox***)
+first_organ_dysfunction_wi_wo_lactacte
+```
+
+# time gained for part B organ dysfunction diagnosis from lactate inclusion, in patients in which time was gained 
+```{r}
+# Set maximum number of hours to 96 with an additional bucket for values > 96
+max_hours <- 96
+
+# Generate breaks by every hour from 0 to 96 hours, and one extra for greater than 96
+breaks <- c(seq(0, max_hours, by = 1), Inf)
+
+# Generate labels for each hourly interval, including one for "greater than 96 hours"
+labels <- c(paste0(seq(0, max_hours - 1), "-", seq(1, max_hours), " hours"), "greater than 95 hours")
+
+# Adjust the pipeline to apply hourly breaks up to 96 hours, with an additional bucket for greater than 96
+time_gained_with_lactate <- wide_sepsis_times %>%
+  select(hospitalization_id, dx_time_gained_with_lactate) %>%
+  mutate(
+    # Cut the time into hourly intervals up to 96 hours, plus a "greater than 95 hours" bucket
+    time_gained_with_lactate = cut(dx_time_gained_with_lactate,
+                                   breaks = breaks,
+                                   labels = labels,
+                                   right = FALSE)  # Left-closed intervals (include lower bound)
+  ) %>%
+  mutate(time_gained_with_lactate = as.factor(time_gained_with_lactate)) %>%
+  group_by(time_gained_with_lactate) %>%
+  summarise(count = n_distinct(hospitalization_id)) %>%
+  ungroup() %>%
+  filter(!is.na(time_gained_with_lactate)) %>% 
+  #note the NA at the end of the table is normal, given these are patients who are diagnosed with sepsis only by part B and therefore cant compare time gained to another criteria
+  mutate(
+    total = sum(count),
+    percent.total = round(count / sum(count) * 100, 2)) %>%
+  mutate(site = as.factor("ucmc"))  # Add your site as 'ucmc'
+
+# View the result, up to 20 hours for presentation purposes
+target_levels <- paste0(seq(0, 19), "-", seq(1, 20), " hours")
+
+# Filter the dataset to include only the desired factor levels
+time_gained_with_lactate_filtered <- time_gained_with_lactate %>%
+  filter(time_gained_with_lactate %in% target_levels)  # Check if each value in time_gained_with_lactate is in target_levels
+
+# Create the plot
+time_gained_with_lactate_filtered %>% 
+  ggplot(aes(x = time_gained_with_lactate, y = percent.total)) +
+  geom_bar(stat = "identity") +
+ labs(title = "Time Gained for Part B Organ Dysfunction Diagnosis from Lactate Inclusion",
+       x = "Time Gained (hours)",
+       y = "Proportion (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+# #If the above dsitribution looks correct (majority of time gained should be few hours max), please export your table into box
+#note the last row NA is normal given these are patients who are diagnosed with sepsis only by part B and therefore cant compare time gained 
+```{r}
+#export table
+#time_gained_with_lactate %>% write.csv(***pathway to dropbox***)
+```
+
+# Table 1
+# Comparison of organ failure between patients who meet and dont meet part B lactate organ failure 
+```{r}
+# Mutate the relevant columns and replace NA with 0, non-NA with 1
+wide_sepsis_times_organfailures <- wide_sepsis_times %>%
+  left_join(clif_hospitalization_cohort %>% 
+              select(hospitalization_id, patient_id, discharge_category, age_at_admission, admission_dttm, discharge_dttm) %>%
+  mutate(hospitalization_id = as.character(hospitalization_id))) %>% 
+  mutate(hospital_los = as.numeric(difftime(discharge_dttm, admission_dttm, units = "days"))) %>% 
+  mutate(in_hospital_mortality = ifelse(discharge_category =="Expired", "died", "survived")) %>% 
+  left_join(clif_patient_cohort %>% 
+              select(patient_id, race_category, ethnicity_category, sex_category)) %>% 
+  mutate(
+    aki = ifelse(is.na(aki), 0, 1),
+    thrombocytopenia = ifelse(is.na(thrombocytopenia), 0, 1),
+    invasive_mechanical_ventilation = ifelse(is.na(`invasive mechanical ventilation`), 0, 1),
+    vasopressor = ifelse(is.na(vasopressor), 0, 1),
+    hyperbilirubinemia = ifelse(is.na(hyperbilirubinemia), 0, 1),
+    lactate = ifelse(is.na(lactate), 0, 1)
+  ) %>% 
+  mutate(inclusion_lactate = 1,
+         exclusion_lactate = inclusion_lactate - lactate_only_dx) %>%  #0 for sepsis_exclusion_lactate
+  mutate(exclusion_lactate = ifelse(exclusion_lactate == 1, 1, NA)) #1 for sepsis_inclusion_lactate, 0 for sepsis_exclusion_lactate
+
+# Create a function for table 1
+lactate_analysis <- function(data) { 
+  data %>%
+  summarise(
+  
+    #demographics
+    total_n = n_distinct(hospitalization_id),
+    age_mean = mean(age_at_admission),
+    age_sd = sd(age_at_admission),
+    sex_female_n = sum(tolower(sex_category) == "female", na.rm = TRUE),
+    sex_female_percent = round(as.double(sex_female_n / total_n * 100), 2),
+    sex_male_n = sum(tolower(sex_category) == "male", na.rm = TRUE),
+    sex_male_percent = round(as.double(sex_male_n / total_n * 100), 2),
+    
+    # Race breakdown
+    race_black_african_american_n = sum(tolower(race_category) == "black or african american"),
+    race_black_african_american_percent = round(race_black_african_american_n/total_n * 100, 2),
+    race_white_n = sum(tolower(race_category) == "white"),
+    race_white_percent = round(race_white_n/total_n * 100, 2),
+    race_asian_n = sum(tolower(race_category) == "asian"),
+    race_asian_percent = round(race_asian_n/total_n * 100, 2),
+    race_american_indian_alaska_native_n = sum(tolower(race_category) == "american indian or alaska native"),
+    race_american_indian_alaska_native_percent = round(race_american_indian_alaska_native_n/total_n * 100, 2),
+    race_native_hawaiian_pacific_islander_n = sum(tolower(race_category) == "native hawaiian or other pacific islander"),
+    race_native_hawaiian_pacific_islander_percent = round(race_native_hawaiian_pacific_islander_n/total_n * 100, 2),
+    race_other_n = sum(tolower(race_category) == "other"),
+    race_other_percent = round(race_other_n/total_n * 100, 2),
+    race_unknown_n = sum(tolower(race_category) == "unknown"),
+    race_unknown_percent = round(race_unknown_n/total_n * 100, 2),
+    race_na_n = sum(is.na(race_category)),
+    race_na_percent = round(race_na_n/total_n * 100, 2),
+    
+    # Ethnicity breakdown
+    ethnicity_hispanic_n = sum(tolower(ethnicity_category) == "hispanic"),
+    ethnicity_hispanic_percent = round(ethnicity_hispanic_n/total_n * 100, 2),
+    ethnicity_non_hispanic_n = sum(tolower(ethnicity_category) == "not hispanic"),
+    ethnicity_non_hispanic_percent = round(ethnicity_non_hispanic_n/total_n * 100, 2),
+    ethnicity_unknown_n = sum(ethnicity_category == "Unknown"),
+    ethnicity_unknown_percent = round(ethnicity_unknown_n/total_n * 100, 2),
+    
+    #organ failures
+    aki_n = sum(aki),
+    aki_percent = round(aki_n/total_n * 100, 2),
+    thrombocytopenia_n = sum(thrombocytopenia),
+    thrombocytopenia_percent = round(thrombocytopenia_n/total_n * 100, 2),
+    invasive_mechanical_ventilation_n = sum(invasive_mechanical_ventilation),
+    invasive_mechanical_ventilation_percent = round(invasive_mechanical_ventilation_n/total_n * 100, 2),
+    vasopressor_n = sum(vasopressor),
+    vasopressor_percent = round(vasopressor_n/total_n * 100, 2),
+    hyperbilirubinemia_n = sum(hyperbilirubinemia),
+    hyperbilirubinemia_percent = round(hyperbilirubinemia_n/total_n * 100, 2),
+    hospital_los_mean = mean(hospital_los),
+    hospital_los_sd = sd(hospital_los),
+    died_n = sum(in_hospital_mortality == "died"),
+    died_percent = round(died_n/total_n * 100, 2)) 
+}
+
+#Run patient cohort exclusion of lactate in sepsis diagnosis
+table1_wide_lactate_excuded<- wide_sepsis_times_organfailures %>% 
+  group_by(exclusion_lactate) %>%
+  lactate_analysis() %>%
+  filter(exclusion_lactate == 1) %>% 
+  select(-exclusion_lactate) %>% 
+  mutate(lactate_inclusion_status = as.factor("lactate_excluded")) %>% 
+  select(lactate_inclusion_status, everything()) 
+
+#Run patient cohort inclusion of lactate in sepsis diagnosis
+table1_wide_lactate_included <- wide_sepsis_times_organfailures %>% 
+  group_by(inclusion_lactate) %>%
+  lactate_analysis() %>% 
+  select(-inclusion_lactate) %>% 
+  mutate(lactate_inclusion_status = as.factor("lactate_included")) %>% 
+  select(lactate_inclusion_status, everything()) 
+
+#Run patient cohort lactate only sepsis diagnosis
+table1_wide_lactate_only <- wide_sepsis_times_organfailures %>% 
+  group_by(lactate_only_dx) %>%
+  lactate_analysis() %>% 
+  filter(lactate_only_dx == 1) %>%
+  select(-lactate_only_dx) %>% 
+  mutate(lactate_inclusion_status = as.factor("lactate_only")) %>% 
+  select(lactate_inclusion_status, everything()) 
+
+table1_wide <- rbind(table1_wide_lactate_included, table1_wide_lactate_excuded, table1_wide_lactate_only) 
+
+#Reshape 
+table1_inclusion_exclusion_lactate_partb <- table1_wide %>%
+  pivot_longer(
+    cols = -lactate_inclusion_status,  # Pivot all columns except lactate
+    names_to = "variable",  # New column for variable names
+    values_to = "n") %>% 
+  pivot_wider(
+    names_from = lactate_inclusion_status,  # Use the 'lactate' column to create new column names
+    values_from = n,       # Use the values from the 'n' column
+    names_prefix = "" ) %>%  # Prefix for the new columns
+  mutate(lactate_included = round(lactate_included, 2),
+         lactate_excluded = round(lactate_excluded, 2),
+         lactate_only = round(lactate_only, 2)) %>% 
+  mutate(site = as.factor("ucmc")) #please insert your site name here
+
+print(table1_inclusion_exclusion_lactate_partb)
+```
+# If the above table looks correct, please export your table into box
+```{r}
+# table1_inclusion_exclusion_lactate_partb %>%  write.csv(***pathway to dropbox***)
+```
+
