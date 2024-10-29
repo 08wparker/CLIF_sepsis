@@ -1,6 +1,6 @@
 ---
 title: "04_ASE_lactate_analysis"
-author: "Kevin Buell"
+author: "Kevin Buell, Will Parker"
 date: "2024-10-27"
 output: html_document
 ---
