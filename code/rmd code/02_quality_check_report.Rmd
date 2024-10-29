@@ -1,6 +1,8 @@
 ---
-title: "sepsis_quality_control".
-output: html_notebook
+title: "Quality control report for Adverse Sepsis Event epidemiology project"
+output:
+  html_document:
+    df_print: paged
 date: "2024-10-20"
 ---
 
@@ -13,7 +15,6 @@ library(arrow)
 library(glue)
 ```
 
-
 # Load in sepsis study cohort CLIF tables
 ```{r}
 # Load the configuration utility
@@ -23,7 +24,6 @@ site_name <- config$site_name
 tables_path <- paste0(config$tables_path, "/sepsis_study_cohort/")
 file_type <- config$file_type
 
-
 # Get a list of all parquet files in the folder
 parquet_files <- list.files(tables_path, pattern = "*.parquet", full.names = TRUE)
 
@@ -32,16 +32,20 @@ load_parquet_file <- function(file_path) {
   # Create a variable name from the file name without extension
   var_name <- tools::file_path_sans_ext(basename(file_path))
   
-  # Load the parquet file and assign it to the global environment
+  # Load the parquet file and assign it to the global environment without previewing it
   assign(var_name, read_parquet(file_path), envir = .GlobalEnv)
+  invisible(NULL) # Suppress any output from the function
 }
 
-# Loop over all files and load them into memory
-lapply(parquet_files, load_parquet_file)
+# Use purrr::walk instead of lapply to suppress unnecessary output
+purrr::walk(parquet_files, load_parquet_file)
+
+glue("CLIF tables for {site_name} loaded.")
 ```
 
+
+
 ### Check patient demographics for Table 1 for ICU vs non-ICU patients 
-# ages, LOS, disposition should be vary between the two
 ```{r}
 ever_icu <- clif_adt_cohort %>%
   filter(tolower(location_category) == "icu") %>%
@@ -62,21 +66,17 @@ table_one_hospitalization <- clif_hospitalization_cohort %>%
                      ethnicity_category, language_name)) %>% 
   mutate(hospitalization_id = as.character(hospitalization_id)) %>%
   left_join(ever_icu, by = "hospitalization_id") %>%
-  mutate(ever_icu = ifelse(is.na(ever_icu), 0, 1)) %>%
+  mutate(ever_icu = ifelse(is.na(ever_icu), "Floor Only", "ICU stay")) %>%
   select(-patient_id, - hospitalization_id) %>%
   tbl_summary(by = ever_icu) %>% 
   modify_caption("Table 1: Summary of Hospitalization Variables by ICU Admission")
 
-table_one_hospitalization 
+table_one_hospitalization
 ```
-
+ages, LOS, disposition should be vary between the two as expected.
 
 ### Check the blood culture count for hospitalized patients 
 ```{r}
-#For UoC only which needs to rename specimen_category to fluid_category
-#clif_microbiology_culture_cohort <- clif_microbiology_culture_cohort %>% rename(fluid_category = specimen_category) 
-
-#For Will Parker - aren't we reverting back to using two proc codes internally at UoC for this? Are we keeping the code like this for other sites?
 #extract id and counts of patients with blood culture
 blood_culture_hospitalization_ids <- clif_microbiology_culture_cohort %>% 
     filter(tolower(fluid_category) == "blood/buffy coat") %>% pull(hospitalization_id) %>% unique() 
@@ -89,8 +89,6 @@ hospitalizations_with_blood_culture <-100*(blood_culture_count/total_hospitaliza
 
 glue("Out of {total_hospitalizations} total hospitalizations, {blood_culture_count} ({hospitalizations_with_blood_culture}%) had a blood culture.")
 ```
-
-Out of `r total_hospitalizations` total hospitalizations, `r blood_culture_count`(`r hospitalizations_with_blood_culture`%) had a blood culture and `r any_culture_count` (`r hosptializations_with_any_culture`%) had any culture.
 
 
 ### Check the blood culture count check for ICU patients 
@@ -109,9 +107,7 @@ icu_patient_blood_cx_pct <- 100*(length(icu_patients_w_blood_culture)/icu_patien
 glue("Out of {icu_patient_count} hospitalizations involving an ICU admission, {length(icu_patients_w_blood_culture)} ({icu_patient_blood_cx_pct}%) had a blood culture.")
 ```
 
-Out of `r icu_patient_count` hospitalizations involving an ICU admission, `r icu_patients_w_blood_culture %>% length()` (`r icu_patient_blood_cx_pct`%) had a blood culture.
-
-### Check that the administration counts of antibiotics administered
+### Check the administration counts of antibiotics administered
 ```{r}
 # structure of clif_medication_admin_intermittent_cohort
 clif_medication_admin_intermittent_cohort %>%
@@ -123,9 +119,9 @@ clif_medication_admin_intermittent_cohort %>%
 ### Check that the doses and administration routes in the antibiotics are 1) oral or intravenous  and 2) reasonable treatment doses
 ```{r}
 clif_medication_admin_intermittent_cohort %>%
-  select(med_category, med_dose, med_route_name, med_dose_units) %>% 
+  select(med_category, med_dose, med_route_name, med_dose_unit) %>% 
   mutate(med_dose = as.numeric(med_dose)) %>%
-  mutate(full_med = paste(med_dose,med_route_name,med_dose_units)) %>%
+  mutate(full_med = paste(med_dose,med_route_name,med_dose_unit)) %>%
   group_by(med_category, full_med) %>%
   count(full_med) %>%
   arrange(-n)
@@ -143,7 +139,6 @@ iv_cefepime_blood_culture <- intersect(blood_culture_hospitalization_ids, iv_cef
 
 glue("Out of {length(iv_cefepime_ids)} patients treated with cefepime, {length(iv_cefepime_blood_culture)} ({round(100 * length(iv_cefepime_blood_culture) / length(iv_cefepime_ids), 2)}%) had a blood culture.")
 ```
-Out of `r iv_cefepime_ids %>% length()` patients treated with cefepime, `r iv_cefepime_blood_culture %>% length()` (`r round(100*(iv_cefepime_blood_culture %>% length())/(iv_cefepime_ids %>% length()), 2)`%) had a blood culture
 
 ## Check the Blood culture frequency in patients receiving IV cefepime in the ICU
 ```{r}
@@ -153,8 +148,6 @@ icu_patients_cefepime_blood_culture <- intersect(iv_cefepime_ids, icu_patients_w
 
 glue("Out of {length(iv_cefepime_icu_patients)} ICU patients treated with IV cefepime, {length(icu_patients_cefepime_blood_culture)} ({round(100 * length(icu_patients_cefepime_blood_culture) / length(iv_cefepime_icu_patients), 2)}%) had a blood culture.")
 ```
-
-Out of `r iv_cefepime_icu_patients %>% length()` ICU patients treated with IV cefepime, `r icu_patients_cefepime_blood_culture %>% length()`(`r round(100*(icu_patients_cefepime_blood_culture %>% length())/(iv_cefepime_icu_patients %>% length()))`%) had a blood culture
 
 
 ### Check the Blood culture frequency in patients receiving IV meropenem 
@@ -167,21 +160,22 @@ iv_meropenem_blood_culture <- intersect(blood_culture_hospitalization_ids, iv_me
 
 glue("Out of {length(iv_meropenem_ids)} patients treated with IV meropenem, {length(iv_meropenem_blood_culture)} ({round(100 * length(iv_meropenem_blood_culture) / length(iv_meropenem_ids), 2)}%) had a blood culture at any point during their hospitalization.")
 ```
-Out of `r iv_meropenem_ids %>% length()` patients treated with IV meropenem, `r iv_meropenem_blood_culture %>% length()` (`r round(100*(iv_meropenem_blood_culture %>% length)/(iv_meropenem_ids %>% length()))`%) had a blood culture at any point during their hospitalization 
-
 
 #### Check IV vasoactives doses 
-# Ask Will parker about applying outlier scripts
 ```{r}
 clif_medication_admin_continuous_cohort %>%
-  filter(tolower(med_category) %in% c("norepinephrine", "epinephrine", "phenylephrine", "vasopressin", "dopamine", "angiotensin") & med_dose > 0) %>% 
+  filter(tolower(med_category) %in% c("norepinephrine", "epinephrine", "phenylephrine",
+                                      "vasopressin", "dopamine", "angiotensin") & med_dose > 0) %>%
   group_by(hospitalization_id, admin_dttm, med_category) %>%
-  summarize(med_dose = mean(med_dose, na.rm = TRUE)) %>% 
+  summarize(med_dose = mean(med_dose, na.rm = TRUE), .groups = "drop") %>%
   pivot_wider(names_from = med_category, values_from = med_dose) %>%
-  ungroup() %>% 
-  select(-hospitalization_id, -admin_dttm) %>% 
+  select(-hospitalization_id, -admin_dttm) %>%
   summary()
 
+```
+
+
+```{r}
 clif_medication_admin_continuous_cohort %>%
   filter(tolower(med_category) %in% c("norepinephrine", "epinephrine", "phenylephrine", "vasopressin", "dopamine", "angiotensin") & med_dose > 0) %>% 
   group_by(hospitalization_id, admin_dttm, med_category) %>%
@@ -192,7 +186,10 @@ clif_medication_admin_continuous_cohort %>%
   labs(x = "Medication", y = "Dose", title = "Boxplots of Medication Doses") +
   theme_minimal() +
   facet_wrap(~med_category, scales = "free")
+```
 
+
+```{r}
 clif_medication_admin_continuous_cohort %>%
   filter(tolower(med_category) %in% c("norepinephrine", "epinephrine", "phenylephrine", "vasopressin", "dopamine", "angiotensin") & med_dose > 0) %>% 
   select(med_category, med_dose, med_route_name, med_dose_unit) %>% 
@@ -201,8 +198,8 @@ clif_medication_admin_continuous_cohort %>%
   group_by(med_category, full_med) %>%
   count(full_med) %>%
   arrange(-n)
-  
 ```
+
 
 #### Check frequency of lab draws for creatinine, lactate, bilirubin, and platelets
 ```{r}
@@ -243,7 +240,6 @@ labs_measurement_per_hospitalization %>%
 ```
 
 #### Check values of lab draws for creatinine, lactate, bilirubin, and platelets
-# Ask Will parker about applying outlier scripts
 ```{r}
 long_sepsis_labs %>% 
   ungroup() %>% 
@@ -298,3 +294,4 @@ no_lab_hospitalizations <- labs_measurement_per_hospitalization %>%
 
 no_lab_hospitalizations
 ```
+
