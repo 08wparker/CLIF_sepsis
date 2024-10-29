@@ -7,9 +7,11 @@
 *.Rproj
 
 
-*ignore smb-related tempfiles
+#ignore smb-related tempfiles
 ._*
 
+#ignore result folder
+result_*
 
 #ignore source CLIF_ files
 CLIF_*.parquet
