@@ -52,6 +52,6 @@ end_date <- "2021-12-31"
 ## 1. Run [`code`](code) 
 
 ## 2. Deposit results:
-Use this [file request link](https://uchicago.app.box.com/f/ceaca412782f47529f9f509f594ad9b0) to deposit your entire `result_[SITE_NAME]` folder.
+Please deposit your entire `result_[SITE_NAME]` folder in this [box folder](https://uchicago.box.com/s/fcaum7o8v59n9c1vy7xnboqy2in4t4ju)
 
 
