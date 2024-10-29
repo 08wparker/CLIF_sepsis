@@ -83,6 +83,12 @@ sepsis_case_summary <- sepsis_case_summary %>%
   )
 ```
 
+```{r}
+sepsis_case_summary <- sepsis_case_summary %>%
+  left_join(clif_hospitalization_cohort %>% select(hospitalization_id, discharge_category)) %>%
+    mutate(mortality = ifelse(discharge_category %in% c("Expired", "Hospice"), "died", "survived"))
+```
+
 #Calculate overall sepsis incidence, with and without inclusion of lactate 
 ```{r}
 #all patients who meet part B sepsis criteria (lactate, vasopressos, IMV, creatinine, bili, platelets) including use of lactate 
@@ -142,6 +148,31 @@ write_dataframe_to_csv <- function(dataframe, output_folder = here::here(paste0(
 
 write_dataframe_to_csv(sepsis_incidence)
 ```
+
+```{r}
+sepsis_summary_table <- sepsis_case_summary %>%
+  ungroup() %>%
+  mutate(
+         sepsis_with_lactate = !is.na(earliest_time_with_lactate),
+    sepsis_without_lactate = !is.na(earliest_time_without_lactate)) %>%
+  summarise(
+    sepsis_cases_with_lactate = sum(sepsis_with_lactate, na.rm = TRUE),
+    sepsis_cases_without_lactate = sum(sepsis_without_lactate, na.rm = TRUE),
+
+    mortality_with_lactate = sum(sepsis_with_lactate & mortality == "died", na.rm = TRUE),
+    mortality_without_lactate = sum(sepsis_without_lactate & mortality == "died", na.rm = TRUE),
+  ) %>%
+  mutate(healthsystem = site_name,
+         total_hospitalizations = total_hospitalizations,
+         incidence_with_lactate = round((sepsis_cases_with_lactate / total_hospitalizations) * 100, 2),
+    incidence_without_lactate = round((sepsis_cases_without_lactate / total_hospitalizations) * 100, 2),
+        mortality_rate_with_lactate = round((mortality_with_lactate / sepsis_cases_with_lactate) * 100, 2),
+    mortality_rate_without_lactate = round((mortality_without_lactate / sepsis_cases_without_lactate) * 100, 2))
+
+
+sepsis_summary_table <- sepsis_summary_table %>% select(healthsystem, total_hospitalizations, incidence_with_lactate, incidence_without_lactate, mortality_rate_with_lactate, mortality_rate_without_lactate)
+```
+
 
 #Calculate sepsis incidence trends over time, with and without inclusion of lactate 
 ```{r}
@@ -470,6 +501,9 @@ time_gained_with_lactate_filtered %>%
 #export table
 write_dataframe_to_csv(time_gained_with_lactate)
 ```
+
+
+
 
 # Table 1
 # Comparison of organ failure between patients who meet and dont meet part B lactate organ failure 
