@@ -8,6 +8,7 @@ output: html_notebook
 library(here)
 library(tidyverse)
 library(arrow)
+library(lubridate)
 ```
 
 ```{r}
@@ -59,27 +60,33 @@ qualifying_antibiotic_days <- qualifying_antibiotic_days %>%
   distinct() %>%
   filter(day >= -2 & day <= 6) %>%
   group_by(hospitalization_id, blood_culture_collect_time) %>%
-  summarise(total_QAD = n()) %>%# Count qualifying days per blood culture collection
-  filter(total_QAD >=4)
+  summarise(total_QAD = n()) 
 
-# Step 4: Load death times and join with essential fields
-death_times <- open_dataset(file.path(tables_path, "clif_hospitalization_cohort.parquet")) %>%
-  select(hospitalization_id, patient_id) %>%
+# Step 4: Identify events that allow the patient to have less than 4 QAD and still be septic
+QAD_censoring_time <- open_dataset(file.path(tables_path, "clif_hospitalization_cohort.parquet")) %>%
+  select(hospitalization_id, patient_id, discharge_dttm, discharge_category) %>%
   left_join(
     open_dataset(file.path(tables_path, "clif_patient_cohort.parquet")) %>%
       select(patient_id, death_dttm),
     by = "patient_id"
-  ) %>%
-  select(hospitalization_id, death_dttm) %>%
-  collect()
+  ) %>% collect() %>% 
+  mutate(end_time = pmin(discharge_dttm, death_dttm, na.rm = TRUE),
+         QAD_censoring_time = case_when(
+           death_dttm == end_time ~ end_time,
+           discharge_category %in% c("Expired", "Acute Care Hospital", "Hospice") ~ end_time
+         )
+         ) %>%
+  select(hospitalization_id, QAD_censoring_time)
+
 
 # Step 5: Determine presumed infection based on QAD and death timing, using blood_culture_collect_time as dttm
 presumed_infection <- qualifying_antibiotic_days %>%
-  left_join(death_times, by = "hospitalization_id") %>%
+  left_join(QAD_censoring_time, by = "hospitalization_id") %>%
   mutate(
-    presumed_infection = ifelse(
-      total_QAD >= 4 | (total_QAD >= 1 & !is.na(death_dttm) & death_dttm < (blood_culture_collect_time + days(4))), 
-      1, 0
+    presumed_infection = case_when(
+      total_QAD >= 4 ~1,
+      total_QAD >= 1 & QAD_censoring_time < (blood_culture_collect_time + days(6)) ~ 1,
+      TRUE ~ 0
     )
   ) %>%
   filter(presumed_infection == 1) %>%
@@ -87,7 +94,6 @@ presumed_infection <- qualifying_antibiotic_days %>%
   arrange(hospitalization_id, time) %>%
   distinct()
 ```
-
 
 **AND**
 
@@ -115,6 +121,8 @@ long_sepsis_vasoactives <- long_sepsis_vasoactives %>%
     1, 0
   )) %>%
   select(hospitalization_id, time, presumed_infection_dttm, med_dose, med_category, qualifying_vasoactive_start)
+
+write_parquet(long_sepsis_vasoactives, file.path(tables_path, "long_vasoactives.parquet"))
 ```
 
 ###  **Initiation of invasive mechanical ventilation** (must be greater than 1 calendar day between mechanical ventilation episodes). Invasive mechanical ventilation can be identified by:
@@ -143,6 +151,9 @@ long_sepsis_IMV <- long_sepsis_IMV %>%
     1, 0
   )) %>%
   select(hospitalization_id, time, presumed_infection_dttm, device_category, qualifying_vent_start)
+
+
+write_parquet(long_sepsis_IMV, file.path(tables_path, "long_IMV.parquet"))
 ```
 
 
@@ -152,7 +163,8 @@ long_sepsis_labs <- open_dataset(file.path(tables_path, "clif_labs_cohort.parque
   filter(lab_category %in% c("lactate", "creatinine", "bilirubin_total", "platelet_count")) %>%
   select(hospitalization_id, lab_category, lab_value_numeric, lab_result_dttm) %>%
   rename(time = lab_result_dttm) %>%
-  collect()  # Collect data into memory
+  collect() %>%# Collect data into memory
+  distinct()
 ```
 
 * **Doubling of serum creatinine** OR decrease by ≥50% of estimated glomerular filtration rate (eGFR) relative to baseline (see below), excluding patients with ICD-10 code for end-stage renal disease (N18.6). (If eGFR values are not readily available, creatinine alone can be used to determine renal dysfunction).
@@ -235,6 +247,9 @@ long_sepsis_labs_w_sepsis_flags <- long_sepsis_labs %>%
                                   lab_value_numeric >= 2 & 
                                   time > presumed_infection_dttm - lubridate::days(2) & time < presumed_infection_dttm + lubridate::days(2), 1, 0)
   )
+
+
+write_parquet(long_sepsis_labs_w_sepsis_flags, file.path(tables_path, "long_sepsis_labs.parquet"))
 ```
 
 # wide format for sepsis evaluation of meeting part B definitions
