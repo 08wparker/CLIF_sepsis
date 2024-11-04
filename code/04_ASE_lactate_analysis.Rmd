@@ -12,6 +12,7 @@ library(gtsummary)
 library(arrow)
 library(readr)
 library(glue)
+library(networkD3)
 ```
 
 # Load in sepsis study cohort CLIF tables
@@ -85,8 +86,158 @@ sepsis_case_summary <- sepsis_case_summary %>%
 
 ```{r}
 sepsis_case_summary <- sepsis_case_summary %>%
-  left_join(clif_hospitalization_cohort %>% select(hospitalization_id, discharge_category)) %>%
-    mutate(mortality = ifelse(discharge_category %in% c("Expired", "Hospice"), "died", "survived"))
+  left_join(clif_hospitalization_cohort %>% select(hospitalization_id, discharge_category, 
+                                                   admission_dttm, admission_type_name, admission_type_category)) %>%
+    mutate(mortality = ifelse(discharge_category %in% c("Expired", "Hospice"), "died", "survived"),
+        time_since_admission_w_lactate = difftime(earliest_time_with_lactate, admission_dttm, units = "days"),
+         onset_w_lactate = ifelse(time_since_admission_w_lactate <= 2, "community", "hospital-acquired"),
+        time_since_admission_without_lactate = difftime(earliest_time_without_lactate, admission_dttm, units = "days"),
+        onset_without_lactate = ifelse(time_since_admission_without_lactate <= 2, "community", "hospital-acquired"))
+```
+
+# Time to sepsis onset
+```{r}
+sepsis_case_summary %>%
+  ggplot(aes(x = time_since_admission_w_lactate, fill = onset_w_lactate)) +
+  geom_histogram(breaks = seq(0, 14)) + labs(x = "Days since admission", color = "Onset category", title = "Time to sepsis diagnosis with lactate in the definition") 
+```
+
+```{r}
+sepsis_case_summary %>%
+  ggplot(aes(x = time_since_admission_without_lactate, fill = onset_without_lactate)) +
+  geom_histogram(breaks = seq(0, 14)) + labs(x = "Days since admission", color = "Onset category", title = "Time to sepsis diagnosis without lactate in the definition") 
+```
+```{r}
+
+# Step 1: Prepare the nodes and links for the Sankey plot
+
+# Define the nodes
+nodes <- data.frame(
+  name = c("Community-Onset with Lactate", "Hospital-Onset with Lactate", 
+           "Community-Onset without Lactate", "Hospital-Onset without Lactate", 
+           "Not Sepsis without Lactate")
+)
+
+# Create a mapping of categories in the original data to node indices
+node_map <- c(
+  "community_community" = 0,
+  "community_hospital-acquired" = 1,
+  "community_NA" = 4,
+  "hospital-acquired_hospital-acquired" = 3,
+  "hospital-acquired_NA" = 4
+)
+
+# Step 2: Prepare the links based on the data
+links <- sepsis_case_summary %>%
+  group_by(onset_w_lactate, onset_without_lactate) %>%
+  summarize(n = n()) %>%
+  mutate(
+    source = case_when(
+      onset_w_lactate == "community" & onset_without_lactate == "community" ~ 0,
+      onset_w_lactate == "community" & onset_without_lactate == "hospital-acquired" ~ 0,
+      onset_w_lactate == "community" & is.na(onset_without_lactate) ~ 0,
+      onset_w_lactate == "hospital-acquired" & onset_without_lactate == "hospital-acquired" ~ 1,
+      onset_w_lactate == "hospital-acquired" & is.na(onset_without_lactate) ~ 1
+    ),
+    target = case_when(
+      onset_w_lactate == "community" & onset_without_lactate == "community" ~ 2,
+      onset_w_lactate == "community" & onset_without_lactate == "hospital-acquired" ~ 3,
+      onset_w_lactate == "community" & is.na(onset_without_lactate) ~ 4,
+      onset_w_lactate == "hospital-acquired" & onset_without_lactate == "hospital-acquired" ~ 3,
+      onset_w_lactate == "hospital-acquired" & is.na(onset_without_lactate) ~ 4
+    )
+  ) %>%
+  select(source, target, value = n)
+
+# Step 3: Create the Sankey plot
+sankeyNetwork(Links = links, Nodes = nodes, Source = "source", Target = "target", 
+              Value = "value", NodeID = "name", units = "Cases", 
+              fontSize = 12, nodeWidth = 30)
+```
+
+
+```{r}
+onset_summary <- sepsis_case_summary %>%
+  group_by(onset_w_lactate, onset_without_lactate) %>%
+  summarize(n = n())
+
+onset_summary %>%
+  mutate(onset_without_lactate = ifelse(is.na(onset_without_lactate), "Not sepsis without lactate", onset_without_lactate))
+
+write_dataframe_to_csv <- function(dataframe, output_folder = here::here(paste0("result_", site_name))) {
+  # Get the name of the dataframe as a string
+  dataframe_name <- deparse(substitute(dataframe))
+  
+  # Define the file path using the dataframe name
+  file_path <- file.path(output_folder, paste0(dataframe_name, ".csv"))
+  
+  # Write the dataframe to CSV
+  write_csv(dataframe, file_path)
+  
+  # Print a message indicating where the file was saved
+  message(glue::glue("Dataframe '{dataframe_name}' has been written to '{file_path}'"))
+}
+
+write_dataframe_to_csv(onset_summary)
+```
+#Calculate organ dysfunction incidence
+```{r}
+sepsis_ids <- sepsis_case_summary %>% pull(hospitalization_id)
+
+shock_ever <- long_vasoactives %>% pull(hospitalization_id) %>% unique()
+imv_ever <- long_IMV %>% pull(hospitalization_id) %>% unique()
+aki_ever <- long_sepsis_labs %>% filter(aki ==1) %>% pull(hospitalization_id) %>% unique()
+hyperbili_ever <- long_sepsis_labs %>% filter(hyperbilirubinemia ==1) %>% pull(hospitalization_id) %>% unique()
+thrombocytopenia_ever <- long_sepsis_labs %>% filter(thrombocytopenia ==1) %>% pull(hospitalization_id) %>% unique()
+lactate_ever <- long_sepsis_labs %>% filter(lab_category == "lactate" & lab_value_numeric > 2 ) %>% pull(hospitalization_id) %>% unique()
+
+
+# Add binary indicator variables to sepsis_case_summary
+sepsis_case_summary <- sepsis_case_summary %>%
+  mutate(
+    shock_ever = if_else(hospitalization_id %in% shock_ever, 1, 0),
+    imv_ever = if_else(hospitalization_id %in% imv_ever, 1, 0),
+    aki_ever = if_else(hospitalization_id %in% aki_ever, 1, 0),
+    hyperbili_ever = if_else(hospitalization_id %in% hyperbili_ever, 1, 0),
+    thrombocytopenia_ever = if_else(hospitalization_id %in% thrombocytopenia_ever, 1, 0),
+    lactate_ever = if_else(hospitalization_id %in% lactate_ever, 1, 0)
+  )
+
+```
+
+```{r}
+organ_dysfunction_counts_all <- sepsis_case_summary %>%
+  ungroup() %>%
+  select(ends_with("_ever")) %>%
+  summarise(
+    shock_ever_count = sum(shock_ever),
+    imv_ever_count = sum(imv_ever),
+    aki_ever_count = sum(aki_ever),
+    hyperbili_ever_count = sum(hyperbili_ever),
+    thrombocytopenia_ever_count = sum(thrombocytopenia_ever),
+    lactate_ever_count = sum(lactate_ever)
+  ) %>%
+  mutate(site_name = site_name)
+
+write_dataframe_to_csv(organ_dysfunction_counts_all)
+```
+
+```{r}
+organ_dysfunction_counts_no_lactate <- sepsis_case_summary %>%
+  ungroup() %>%
+  filter(lactate_only_dx ==0) %>%
+  select(ends_with("_ever")) %>%
+  summarise(
+    shock_ever_count = sum(shock_ever),
+    imv_ever_count = sum(imv_ever),
+    aki_ever_count = sum(aki_ever),
+    hyperbili_ever_count = sum(hyperbili_ever),
+    thrombocytopenia_ever_count = sum(thrombocytopenia_ever),
+    lactate_ever_count = sum(lactate_ever)
+  ) %>%
+  mutate(site_name = site_name)
+
+write_dataframe_to_csv(organ_dysfunction_counts_no_lactate)
 ```
 
 #Calculate overall sepsis incidence, with and without inclusion of lactate 
@@ -130,22 +281,6 @@ glue(
 ```
 
 ```{r}
-
-write_dataframe_to_csv <- function(dataframe, output_folder = here::here(paste0("result_", site_name))) {
-  # Get the name of the dataframe as a string
-  dataframe_name <- deparse(substitute(dataframe))
-  
-  # Define the file path using the dataframe name
-  file_path <- file.path(output_folder, paste0(dataframe_name, ".csv"))
-  
-  # Write the dataframe to CSV
-  write_csv(dataframe, file_path)
-  
-  # Print a message indicating where the file was saved
-  message(glue::glue("Dataframe '{dataframe_name}' has been written to '{file_path}'"))
-}
-
-
 write_dataframe_to_csv(sepsis_incidence)
 ```
 
@@ -394,12 +529,12 @@ lactate_order_per_patient_time %>%
   scale_x_discrete(guide = guide_axis(angle = 45)) +  # Rotate x-axis labels for readability
   theme(axis.text.x = element_text(hjust = 1))
 ```
-# If the above graph looks correct, please export your table into box
+
 ```{r}
 write_dataframe_to_csv(lactate_order_per_patient_time)
 ```
 
-#calculate the proportions of first organ dysfunctions, with and without lactate criteria
+#calculate the proportions of first qualifying organ dysfunctions, with and without lactate criteria
 #note the NA in the table is normal, given its the patients with partb lactate only
 ```{r}
 # Calculate proportions for first_organ_dysfunction_without_lactate
@@ -437,7 +572,7 @@ ggplot(aes(x = first_organ_dysfunction, y = percent.total, fill = category)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-#If the above graph looks correct, please export your table into box
+#If the above graph looks correct, please run this chunk
 #note, the 6th row should be NA, which represents patients who only diagnosed with sepsis from lactate 
 ```{r}
 #export table
@@ -495,13 +630,16 @@ time_gained_with_lactate_filtered %>%
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
 ```
-# #If the above dsitribution looks correct (majority of time gained should be few hours max), please export your table into box
+# #If the above dsitribution looks correct (majority of time gained should be few hours max), please export your table
 #note the last row NA is normal given these are patients who are diagnosed with sepsis only by part B and therefore cant compare time gained 
 ```{r}
 #export table
 write_dataframe_to_csv(time_gained_with_lactate)
 ```
 
+```{r}
+clif_patient_cohort %>% count(race_category)
+```
 
 
 
@@ -516,7 +654,8 @@ sepsis_case_summary_organfailures <- sepsis_case_summary %>%
   mutate(hospital_los = as.numeric(difftime(discharge_dttm, admission_dttm, units = "days"))) %>% 
   mutate(in_hospital_mortality = ifelse(discharge_category =="Expired", "died", "survived")) %>% 
   left_join(clif_patient_cohort %>% 
-              select(patient_id, race_category, ethnicity_category, sex_category)) %>% 
+              select(patient_id, race_category, ethnicity_category, sex_category) %>%
+            mutate(race_category = ifelse(is.na(race_category), "Unknown", race_category))) %>% 
   mutate(
     aki = ifelse(is.na(aki), 0, 1),
     thrombocytopenia = ifelse(is.na(thrombocytopenia), 0, 1),
